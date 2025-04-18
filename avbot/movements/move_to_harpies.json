@@ -1,0 +1,19 @@
+[
+  {"units": 10, "rotation": 0.05},
+  {"units": 10, "rotation": 0.05},
+  {"units": 10, "rotation": 0.05},
+  {"units": 5, "rotation": -0.075},
+  {"units": 5, "rotation": -0.01},
+  {"units": 20, "rotation": 0},
+  {"units": 20, "rotation": 0.05},
+  {"units": 20, "rotation": -0.1},
+  {"units": 30, "rotation": 0},
+  {"units": 10, "rotation": -0.05},
+  {"units": 10, "rotation": 0},
+  {"units": 5, "rotation": 0.01},
+  {"units": 5, "rotation": 0.01},
+  {"units": 5, "rotation": 0.01},
+  {"units": 5, "rotation": 0},
+  {"units": 5, "rotation": -0.01},
+  {"units": 5, "rotation": 0}
+]

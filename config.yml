@@ -1,0 +1,9 @@
+keybinds:
+  strafe_left: a
+  strafe_right: d
+  turn_left: "["
+  turn_right: "]"
+  mount: t
+  interact_with_target: "/"
+
+

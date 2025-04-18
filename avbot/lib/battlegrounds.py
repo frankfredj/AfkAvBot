@@ -1,29 +1,12 @@
 import time
 import random
 import pyautogui
-import keyboard
 from avbot.lib.screen import WoWclient
 
+from avbot.lib.movements import move_until_death, mount_up, move_randomly_in_bg
 from avbot.lib.utils import (
-    convert_bbox_to_location,
-    convert_location_to_bbox,
-    get_monitor_bbox,
-    get_bbox_center,
-    get_mss_monitor_bbox,
-    is_subbox,
-    get_relative_location,
-    get_absolute_location,
-    Location,
-    move_mouse,
     move_mouse_to_bbox,
-    BBox,
-    parse_keystrokes,
-    perform_keystrokes,
-)
-from avbot.lib.exceptions import (
-    WoWnotFoundException,
-    MonitorNotFoundException,
-    ImageNotFoundException,
+    clear_keys,
 )
 
 
@@ -46,6 +29,7 @@ def queue_and_enter_av(
         grayscale (bool): Whether to use grayscale for image recognition
         max_wait_time (int): Max wait time in seconds for a queue
     """
+    clear_keys()
     # First, focus the WoW window
     client.focus_client()
     client.reload_client()
@@ -141,81 +125,48 @@ def queue_and_enter_av(
     return False
 
 
-def walk_out_and_mount(client: WoWclient, i: int = 0, mount_key: str = "t") -> bool:
+def walk_out_and_mount(
+    client: WoWclient,
+    move_forward_key="w",
+    turn_left_key: str = "[",
+    turn_right_key: str = "]",
+    threshold: float = 0.75,
+    grayscale: bool = True,
+    mount_key: str = "t",
+) -> bool:
     """
     Walks to the AFK spot in Alterac Valley battleground by replaying recorded keystrokes
 
     Args:
         client (WoWclient): The WoW client instance
-        i (int): start index
+        move_forward_key (str): Key to move forward
+        turn_left_key (str): Key to turn left
+        turn_right_key (str): Key to turn right
+        threshold (float): image detection severity
+        grayscale (float): image detection parameter
         mount_key (str): keybind to mount up
 
     Returns:
         bool: True if successfully walked to the AFK spot, False otherwise
     """
+    clear_keys()
     client.focus_client()
-    moves = client.keystrokes.get("move_out_and_mount")
-    for move in moves:
-        move["key"] = mount_key if move["key"] == "t" else move["key"]
+    movements = client.movements.get("move_out_of_cave")
 
-    if not moves:
+    if not movements:
         return False
 
-    perform_keystrokes(moves[i:])
+    move_until_death(
+        client,
+        movements,
+        move_forward_key,
+        turn_left_key,
+        turn_right_key,
+        threshold,
+        grayscale,
+    )
+    mount_up(client, mount_key)
     return True
-
-
-def move_like_an_idiot(client: WoWclient) -> bool:
-    """
-    Names says it all.
-
-    Args:
-        client (WoWclient): The WoW client instance
-
-    Returns:
-        (bool): True if the move was performed
-
-    """
-    client.focus_client()
-    cancel_res = client.get_sub_image("cancel_res")
-
-    move_duration = random.uniform(5, 15)
-    keys = ["w", "a", "d", "s"]
-    for key in keys:
-        pyautogui.keyUp(key)
-
-    n_moves = int(random.uniform(5, 10))
-    delta_t = move_duration / n_moves
-    for i in range(n_moves):
-        pyautogui.keyDown("w")
-
-        key = None
-        if random.randint(0, 1):
-            key = "a" if random.randint(0, 1) else "d"
-            pyautogui.keyDown("w")
-
-        if key:
-            pyautogui.keyDown(key)
-            time.sleep(delta_t / 4)
-            pyautogui.keyUp(key)
-            time.sleep(3 * delta_t / 4)
-        else:
-            time.sleep(delta_t)
-
-        cancel_res.update_location(client)
-        if cancel_res.found:
-            pyautogui.keyUp("w")
-            return False
-
-    pyautogui.keyUp("w")
-    stop_moving()
-    return True
-
-
-def stop_moving():
-    for key in ["a", "s", "d", "w"]:
-        if keyboard.is_pressed(key):
-            pyautogui.keyUp(key)
 
 
 def afk_bg(
@@ -224,6 +175,9 @@ def afk_bg(
     target_name: str = "Thelman Slatefist",
     interact_with_target_key: str = "/",
     mount_key: str = "t",
+    move_forward_key="w",
+    turn_left_key: str = "[",
+    turn_right_key: str = "]",
     threshold: float = 0.75,
     grayscale: bool = True,
     max_wait_time: int = 400,
@@ -237,10 +191,34 @@ def afk_bg(
         target_name (str): The name of the NPC to target
         interact_with_target_key (str): The key to press to interact with the target, default "/"
         mount_key (str): keybind to mount up, default "t"
+        move_forward_key (str): Key to move forward
+        turn_left_key (str): Key to turn left
+        turn_right_key (str): Key to turn right
         threshold (float): The matching threshold for image recognition
         grayscale (bool): Whether to use grayscale for image recognition
         max_wait_time (int): Max wait time in seconds for a queue
     """
+    client.focus_client()
+    clear_keys()
+    # Use batches of 10 movements
+    n_movements = 10
+
+    was_dead = False
+    leave_battleground = client.get_sub_image("leave_battleground")
+    cancel_res = client.get_sub_image("cancel_res")
+
+    def update_status():
+        leave_battleground.update_location(client, threshold, grayscale)
+        cancel_res.update_location(client, threshold, grayscale)
+
+    def is_dead():
+        update_status()
+        return cancel_res.found and not leave_battleground.found
+
+    def bg_is_over():
+        update_status()
+        return not cancel_res.found and leave_battleground.found
+
     try:
         for i in range(n):
             queue_and_enter_av(
@@ -251,45 +229,72 @@ def afk_bg(
                 grayscale,
                 max_wait_time,
             )
-            time.sleep(2 * 60)
-            walk_out_and_mount(client, mount_key=mount_key)
+            time.sleep(random.uniform(115, 120))
+            move_until_death(
+                client,
+                client.movements.get("move_out_of_cave"),
+                move_forward_key,
+                turn_left_key,
+                turn_right_key,
+                threshold,
+                grayscale,
+            )
+            mount_up(client, mount_key, threshold=0.75)
 
-            leave_battleground = client.get_sub_image("leave_battleground")
-            cancel_res = client.get_sub_image("cancel_res")
+            # Routine to walk to initial spot
+            move_until_death(
+                client,
+                client.movements.get("move_to_harpies"),
+                move_forward_key,
+                turn_left_key,
+                turn_right_key,
+                threshold,
+                grayscale,
+            )
 
             while True:
                 # Move randomly
-                is_alive = move_like_an_idiot(client)
-                # If the function returns False, then we died mid-move
-                if not is_alive:
-                    print("Info: character died. Waiting to be resurrected...")
-                    stop_moving()
-                    # Check if we can cancel our res for 61 seconds.
-                    # If we can't, then we have been resurrected or the game is over
-                    for k in range(61):
-                        time.sleep(1)
-                        cancel_res.update_location(client)
-                        if not cancel_res.found():
-                            # Mount up after being resurrected
-                            print("Info: character was resurrected. Mounting up...")
-                            pyautogui.keyDown("t")
-                            time.sleep(0.5)
-                            pyautogui.keyUp("t")
-                            time.sleep(2)
-                            break
+                if not is_dead():
+                    if not was_dead:
+                        # Mount up if not already mounted, then move randomly
+                        mount_up(client, mount_key, threshold, grayscale)
+                        move_randomly_in_bg(
+                            client,
+                            n_movements,
+                            move_forward_key,
+                            turn_left_key,
+                            turn_right_key,
+                            threshold,
+                            grayscale,
+                        )
+                    else:
+                        # Move 100 units away from the graveyard in a straight line after being resurrected
+                        move_until_death(
+                            client,
+                            [{"units": 100, "rotation": 0.0}],
+                            move_forward_key,
+                            turn_left_key,
+                            turn_right_key,
+                            threshold,
+                            grayscale,
+                        )
+                        was_dead = False
+                else:
+                    clear_keys()
 
-                # Check if the game is over
-                cancel_res.update_location(client)
-                leave_battleground.update_location(client)
-
-                if not cancel_res.found and leave_battleground.found:
+                if bg_is_over():
                     break
 
+                elif is_dead():
+                    clear_keys()
+                    was_dead = True
+                    time.sleep(5)
+
+            clear_keys()
             print("Info: AV battle is over. Leaving battleground...")
-            stop_moving()
             move_mouse_to_bbox(leave_battleground.absolute_bbox)
             print(f"Complete battleground #{i + 1}. Good work!")
-            time.sleep(20)
+            time.sleep(random.uniform(10, 15))
 
     except BaseException as e:
         print(e)

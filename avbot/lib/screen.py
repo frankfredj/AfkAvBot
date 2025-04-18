@@ -25,10 +25,7 @@ from avbot.lib.utils import (
     get_absolute_location,
     Location,
     move_mouse,
-    move_mouse_to_bbox,
     BBox,
-    parse_keystrokes,
-    perform_keystrokes,
 )
 from avbot.lib.exceptions import (
     WoWnotFoundException,
@@ -163,7 +160,13 @@ class SubImage:
             self.image = client.monitor.image.crop(self.location)
             self.timestamp = datetime.now()
 
-    def update_location(self, client: "WoWclient", threshold=0.9, grayscale=True):
+    def update_location(
+        self,
+        client: "WoWclient",
+        threshold=0.9,
+        grayscale=True,
+        update_image: bool = True,
+    ):
         self.location = None
         self.bbox = None
         self.absolute_location = None
@@ -172,7 +175,9 @@ class SubImage:
         if not self.image:
             return
 
-        self.found, self.location = find_image(client, self.image, threshold, grayscale)
+        self.found, self.location = find_image(
+            client, self.image, threshold, grayscale, update_image
+        )
 
         if self.found:
             self.absolute_location = get_absolute_location(
@@ -197,7 +202,7 @@ class WoWclient:
     timestamp: Optional[datetime] = None
 
     sub_images: List[SubImage] = field(default_factory=list)
-    keystrokes: dict = field(default_factory=dict)
+    movements: dict = field(default_factory=dict)
 
     def __repr__(self):
         return (
@@ -297,40 +302,63 @@ class WoWclient:
                 except Exception as e:
                     print(f"Error loading image {file_path}: {e}")
 
-    def load_keystrokes(self):
+    def load_movements(self):
         """Load all json files from the data directory and create keystroke records"""
         # Path to the data directory (assuming the module structure from the screenshot)
         module_dir = Path(__file__).parent.parent
-        keystrokes_dir = module_dir / "keystrokes"
+        movements_dir = module_dir / "movements"
 
-        if not keystrokes_dir.exists():
-            print(f"Warning: Data directory not found at {keystrokes_dir}")
+        if not movements_dir.exists():
+            print(f"Warning: Data directory not found at {movements_dir}")
             return
 
         # Load each json file
-        for file_path in keystrokes_dir.iterdir():
-            if file_path.suffix.lower() == ".json" and not self.keystrokes.get(
+        for file_path in movements_dir.iterdir():
+            if file_path.suffix.lower() == ".json" and not self.movements.get(
                 file_path.stem
             ):
                 try:
                     # Open and read the JSON file
                     with open(file_path, "r") as f:
-                        keystroke_data = json.load(f)
+                        movements_data = json.load(f)
 
-                    # Store the data in the keystrokes dictionary using the filename (without extension) as the key
-                    self.keystrokes[file_path.stem] = parse_keystrokes(keystroke_data)
+                    # Store the data in the movements dictionary using the filename (without extension) as the key
+                    self.movements[file_path.stem] = movements_data
 
-                    print(f"Loaded keystroke data from {file_path.name}")
+                    print(f"Loaded movement data from {file_path.name}")
                 except json.JSONDecodeError:
                     print(f"Error: Could not parse JSON in {file_path}")
                 except Exception as e:
                     print(f"Error loading {file_path}: {str(e)}")
 
     def update_sub_image(
-        self, name: str, threshold: float = 0.9, grayscale: bool = True
+        self,
+        name: str,
+        threshold: float = 0.9,
+        grayscale: bool = True,
+        update_client_image: bool = True,
     ):
         image = get_image_from_list(name, self.sub_images)
-        image.update_location(self, threshold, grayscale)
+        image.update_location(
+            self,
+            threshold=threshold,
+            grayscale=grayscale,
+            update_image=update_client_image,
+        )
+
+    def update_sub_images(
+        self,
+        threshold: float = 0.9,
+        grayscale: bool = True,
+        update_client_image: bool = True,
+    ):
+        for img in self.sub_images:
+            img.update_location(
+                self,
+                threshold=threshold,
+                grayscale=grayscale,
+                update_image=update_client_image,
+            )
 
     def get_sub_image(self, name: str):
         return get_image_from_list(name, self.sub_images)
@@ -338,8 +366,8 @@ class WoWclient:
     def focus_client(self):
         focus_client(self)
 
-    def reload_client(self):
-        reload_client(self)
+    def reload_client(self, threshold: float = 0.9, grayscale: bool = True):
+        reload_client(self, threshold, grayscale)
 
 
 def find_image(
@@ -347,6 +375,7 @@ def find_image(
     template_image: Image.Image,
     threshold: float = 0.9,
     grayscale: bool = True,
+    update_image: bool = True,
 ) -> Tuple[bool, Optional[Location]]:
     """
     Search for a template image within the WoW client screen.
@@ -356,6 +385,7 @@ def find_image(
         template_image (PIL.Image): The template image to search for
         threshold (float): The matching threshold (0-1), higher values require closer matches
         grayscale (bool): Whether to convert images to grayscale before matching
+        update_image (bool): Updates the image before attempting to locate the subimage
 
     Returns:
         Tuple[bool, Optional[Location]]:
@@ -363,7 +393,8 @@ def find_image(
             - If found, a Location namedtuple with left, top, right, bottom; None otherwise
     """
     # Refresh the client image first
-    client.update_client_image()
+    if update_image:
+        client.update_client_image()
 
     # Convert PIL images to numpy arrays for OpenCV
     client_img = np.array(client.image)

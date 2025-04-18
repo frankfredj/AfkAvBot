@@ -1,13 +1,14 @@
 import math
 import time
+import keyboard
+import inspect
+import sys
 from collections import namedtuple
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Dict, Optional, Callable
 from random import randint, uniform
-
 
 import pyautogui
 import numpy as np
-
 
 # Define the namedtuples once at module level
 Location = namedtuple("Location", ["left", "top", "right", "bottom"])
@@ -221,3 +222,26 @@ def perform_keystrokes(parsed_keystrokes: Optional[List[dict]]) -> bool:
             except Exception as release_error:
                 print(f"Failed to release key {key}: {release_error}")
         return False
+
+
+def key_up_all(keys: List[str]):
+    for key in keys:
+        if keyboard.is_pressed(key):
+            pyautogui.keyUp(key)
+
+
+def clear_keys():
+    """Call this function from within any function to clear all keys ending with '_key'"""
+    # Get the frame of the calling function
+    frame = sys._getframe(1)  # 1 = previous stack frame (the calling function)
+
+    # Get the local variables of the calling function
+    locals_dict = frame.f_locals
+
+    # Extract values for parameters ending with '_key'
+    key_values = [value for name, value in locals_dict.items() if name.endswith("_key")]
+    for key in key_values:
+        pyautogui.keyUp(key)
+
+    # Clear the keys
+    key_up_all(key_values)

@@ -20,3 +20,9 @@ class ImageNotFoundException(Exception):
     """Raised when the auction type is wrong."""
 
     pass
+
+
+class MovementsNotFoundException(Exception):
+    """Raised when the auction type is wrong."""
+
+    pass
